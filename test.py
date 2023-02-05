@@ -186,7 +186,7 @@ def up_ols_time(x, y, B):
 if __name__ == "__main__":
     # load in required data
     data = load_wav("gs/Alesis-Fusion-Clean-Guitar-C3.wav")
-    reverb_ir = load_wav("irs/1st_baptist_nashville_balcony.wav")
+    reverb = load_wav("irs/1st_baptist_nashville_balcony.wav")
     delay_ir = load_wav("irs/GT-8 Impulse Responses 1.01/GT-8 Tape Delay L.wav")
 
     # test with block sizes from 64 - 4096
@@ -194,43 +194,45 @@ if __name__ == "__main__":
 
     # convolution tests
     # reverb ir size
-    print("reverb size: {0}".format(len(reverb_ir)))
-
-
-    # test overlap_add
-    print("--------- ola ---------")
-    for s in block_sizes:
-        avg = []
-        total = []
-        for i in range(50):
-            t = overlap_add_time(data, reverb_ir, s)
-            avg.append(np.mean(t)*1000)
-            total.append(np.sum(t))
-        print("B = {0}: {1}s total ({2}ms / block)".format(s, np.mean(total), np.mean(avg)))
-    print("")
     
-    # test overlap_save
-    print("--------- ols ---------")
-    for s in block_sizes:
-        avg = []
-        total = []
-        for i in range(50):
-            t = overlap_save_time(data, reverb_ir, s)
-            avg.append(np.mean(t)*1000)
-            total.append(np.sum(t))
-        print("B = {0}: {1}s total ({2}ms / block)".format(s, np.mean(total), np.mean(avg)))
-    print("")
-    
-    # test uniform partition
-    print("-------- upols --------")
-    for s in block_sizes:
-        avg = []
-        total = []
-        for i in range(50):
-            t = up_ols_time(data, reverb_ir, s)
-            avg.append(np.mean(t)*1000)
-            total.append(np.sum(t))
-        print("B = {0}: {1}s total ({2}ms / block)".format(s, np.mean(total), np.mean(avg)))
-    print("")
+
+    for i in range(16000, 288001, 16000):
+        print("reverb size: {0}".format(i))
+        reverb_ir = reverb[:i]
+        # test overlap_add
+        print("--------- ola ---------")
+        for s in block_sizes:
+            avg = []
+            total = []
+            for i in range(50):
+                t = overlap_add_time(data, reverb_ir, s)
+                avg.append(np.mean(t)*1000)
+                total.append(np.sum(t))
+            print("B = {0}: {1}s total ({2}ms / block)".format(s, np.mean(total), np.mean(avg)))
+        print("")
+        
+        # test overlap_save
+        print("--------- ols ---------")
+        for s in block_sizes:
+            avg = []
+            total = []
+            for i in range(50):
+                t = overlap_save_time(data, reverb_ir, s)
+                avg.append(np.mean(t)*1000)
+                total.append(np.sum(t))
+            print("B = {0}: {1}s total ({2}ms / block)".format(s, np.mean(total), np.mean(avg)))
+        print("")
+        
+        # test uniform partition
+        print("-------- upols --------")
+        for s in block_sizes:
+            avg = []
+            total = []
+            for i in range(50):
+                t = up_ols_time(data, reverb_ir, s)
+                avg.append(np.mean(t)*1000)
+                total.append(np.sum(t))
+            print("B = {0}: {1}s total ({2}ms / block)".format(s, np.mean(total), np.mean(avg)))
+        print("")
     
 
