@@ -196,7 +196,7 @@ if __name__ == "__main__":
     # reverb ir size
     
 
-    for i in range(16000, 288001, 16000):
+    for i in range(5000, 100001, 5000):
         print("reverb size: {0}".format(i))
         reverb_ir = reverb[:i]
         # test overlap_add
@@ -204,7 +204,7 @@ if __name__ == "__main__":
         for s in block_sizes:
             avg = []
             total = []
-            for i in range(50):
+            for i in range(10):
                 t = overlap_add_time(data, reverb_ir, s)
                 avg.append(np.mean(t)*1000)
                 total.append(np.sum(t))
@@ -216,7 +216,7 @@ if __name__ == "__main__":
         for s in block_sizes:
             avg = []
             total = []
-            for i in range(50):
+            for i in range(10):
                 t = overlap_save_time(data, reverb_ir, s)
                 avg.append(np.mean(t)*1000)
                 total.append(np.sum(t))
@@ -228,7 +228,7 @@ if __name__ == "__main__":
         for s in block_sizes:
             avg = []
             total = []
-            for i in range(50):
+            for i in range(10):
                 t = up_ols_time(data, reverb_ir, s)
                 avg.append(np.mean(t)*1000)
                 total.append(np.sum(t))
