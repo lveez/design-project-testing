@@ -5,7 +5,7 @@ from scipy.io import wavfile
 from scipy.fft import fft, ifft
 
 def pad_zeros_to(input, new_length):
-    output = np.zeros((new_length,))
+    output = np.zeros((new_length,), dtype=np.float32)
     output[:input.shape[0]] = input
     return output
 
@@ -14,6 +14,7 @@ def next_power_of_2(n):
 
 def load_wav(file):
     samplerate, data = wavfile.read(file)
+    print("{0}: {1}Hz".format(file, samplerate))
     if data.ndim > 1:
         data = data[:,1]
     data = data.astype(np.float32)
@@ -42,11 +43,14 @@ def overlap_add(x, y, B, test=False):
     # perform fft of filter
     Y = fft(y, K)
 
-    s, p = tracemalloc.get_traced_memory()
-    print(p/1024)
+    c, _ = tracemalloc.get_traced_memory()
+    print("Filter FFT buffer is {0} bytes long".format(c))
 
     num_buffer_blocks = np.ceil((B+len(y)-1)/B).astype(int)
     buffer = np.zeros((num_buffer_blocks*B,), dtype=np.float32)
+
+    c, _ = tracemalloc.get_traced_memory()
+    print("Filter FFT buffer and input buffer is {0} bytes long".format(c))
     
     # storing output so can listen back to it, remove when testign memory performance
     if test == False:
@@ -66,9 +70,11 @@ def overlap_add(x, y, B, test=False):
             block_output, buffer = process_block_ola(block, Y, K, len(y), buffer)
         t_end = time.time()
 
+    tracemalloc.stop()
+
     if test:
         # return time in seconds of processing / second of input signal
-        return (t_end-t_start)/len(x), p/1024
+        return (t_end-t_start)/len(x)
     
     return output, original
 
@@ -77,13 +83,13 @@ def process_block_ola(x, Y, K, N, buffer):
     B = len(x)
     
     # perform fft of input block
-    X = np.fft.fft(x, K)
+    X = fft(x, K)
 
     # spectral convolution
     Z = np.multiply(X, Y)
 
     # inverse fft
-    z = np.real(np.fft.ifft(Z))
+    z = np.real(ifft(Z))
     z = z[:B+N-1] # only care about first B + N - 1 samples
 
     # add to buffer
@@ -104,7 +110,7 @@ def process_block_ola(x, Y, K, N, buffer):
     return output, buffer
 
 # this uses overlap save only partitioning the signal
-def overlap_save(x, y, B):
+def overlap_save(x, y, B, test=False):
     '''
     x - input signal
     y - filter
@@ -120,23 +126,43 @@ def overlap_save(x, y, B):
     # work out K
     K = next_power_of_2(B + len(y) - 1)
 
+    tracemalloc.start()
+
     # perform fft of filter
-    Y = np.fft.fft(y, K)    # np.fft auto zero pads
+    Y = fft(y, K)    # np.fft auto zero pads
+
+    c, _ = tracemalloc.get_traced_memory()
+    print("Filter FFT buffer is {0} bytes long".format(c))
 
     # K should be divisible by B as they should both be powers of 2 but deal with edge case
     num_buffer_blocks = np.ceil(K/B).astype(int)
-    buffer = np.zeros(num_buffer_blocks*B)
+    buffer = np.zeros((num_buffer_blocks*B,), dtype=np.float32)
 
-    # storing output so can listen back to it, remove when testign memory performance
-    output = []
-    original = []
+    c, _ = tracemalloc.get_traced_memory()
+    print("Filter FFT buffer and input buffer is {0} bytes long".format(c))
 
-    # process each block individually
-    for block in blocks:
-        block_output, buffer = process_block_ols(block, Y, K, len(y), buffer)
-        output = np.concatenate((output, block_output)).astype(np.float32)
-        original = np.concatenate((original, block)).astype(np.float32)
+    if test == False:
+        # storing output so can listen back to it, remove when testign memory performance
+        output = []
+        original = []
 
+        # process each block individually
+        for block in blocks:
+            block_output, buffer = process_block_ols(block, Y, K, len(y), buffer)
+            output = np.concatenate((output, block_output)).astype(np.float32)
+            original = np.concatenate((original, block)).astype(np.float32)
+    else:
+        t_start = time.time()
+        for block in blocks:
+            block_output, buffer = process_block_ols(block, Y, K, len(y), buffer)
+        t_end = time.time()
+
+    tracemalloc.stop()
+
+    if test:
+        # return time in seconds of processing / second of input signal
+        return (t_end-t_start)/len(x)
+    
     return output, original
 
 def process_block_ols(x, Y, K, N, buffer):
@@ -148,20 +174,20 @@ def process_block_ols(x, Y, K, N, buffer):
     buffer[-B:] = x
 
     # perform fft of buffer
-    X = np.fft.fft(buffer, K)
+    X = fft(buffer, K)
     
     # spectral convolution
     Z = np.multiply(X, Y)
 
     # inverse fft
-    z = np.real(np.fft.ifft(Z))
+    z = np.real(ifft(Z))
     return z[-B:], buffer
 
 
 
 # this uses overlap save with uniform partitioning i.e. both
 # filter and signal is partitioned
-def uniform_partition_ols(x, y, B):
+def uniform_partition_ols(x, y, B, test=False):
     '''
     x - input signal
     y - filter
@@ -175,25 +201,48 @@ def uniform_partition_ols(x, y, B):
 
     x_blocks = [x[i:i+B] for i in range(0, len(x), B)]
     y_blocks = [y[i:i+B] for i in range(0, len(y), B)]
-    Y_blocks = [np.fft.fft(block, 2*B) for block in y_blocks] # numpy automatically zero pads fft
+
+    tracemalloc.start()
+
+    Y_blocks = [fft(block, 2*B) for block in y_blocks] # numpy automatically zero pads fft
     
+    c, _ = tracemalloc.get_traced_memory()
+    print("Filter FFT buffer is {0} bytes long".format(c))
+
     # # removing unneeded elements to speed up multiplication
     # for i in range(len(Y_blocks)):
     #     Y_blocks[i] = Y_blocks[i][:B+1]
 
-    buffer = np.zeros(2*B)
-    # size of fdl can be reduced to B+1
-    fdl = np.zeros((num_y_blocks, 2*B), dtype=np.complex128)
+    buffer = np.zeros((2*B,), dtype=np.float32)
+    c, _ = tracemalloc.get_traced_memory()
+    print("Filter FFT buffer and input buffer is {0} bytes long".format(c))
 
-    # storing output so can listen back to it, remove when testign memory performance
-    output = []
-    original = []
-    
-    # process each block individually
-    for block in x_blocks:
-        block_output, buffer = process_block_up_ols(block, Y_blocks, buffer, fdl)
-        output = np.concatenate((output, block_output)).astype(np.float32)
-        original = np.concatenate((original, block)).astype(np.float32)
+    # size of fdl can be reduced to B+1
+    fdl = np.zeros((num_y_blocks, 2*B), dtype=np.complex64)
+    c, _ = tracemalloc.get_traced_memory()
+    print("Filter FFT buffer, input buffer and fdl is {0} bytes long".format(c))
+
+    if test == False:
+        # storing output so can listen back to it, remove when testign memory performance
+        output = []
+        original = []
+        
+        # process each block individually
+        for block in x_blocks:
+            block_output, buffer = process_block_up_ols(block, Y_blocks, buffer, fdl)
+            output = np.concatenate((output, block_output)).astype(np.float32)
+            original = np.concatenate((original, block)).astype(np.float32)
+    else:
+        t_start = time.time()
+        for block in x_blocks:
+            block_output, buffer = process_block_up_ols(block, Y_blocks, buffer, fdl)
+        t_end = time.time()
+
+    tracemalloc.stop()
+
+    if test:
+        # return time in seconds of processing / second of input signal
+        return (t_end-t_start)/len(x)
 
     return output, original
 
@@ -204,20 +253,20 @@ def process_block_up_ols(x, Y_blocks, buffer, fdl):
     buffer[-B:] = x
 
     # fft of buffer
-    X = np.fft.fft(buffer)
+    X = fft(buffer)
     # X = X[:B+1]
     # update fdl
     for i in range(fdl.shape[0]-1):
         fdl[i] = fdl[i+1]
     fdl[fdl.shape[0]-1] = X
 
-    output = np.zeros((2*B,), dtype=np.complex128)
+    output = np.zeros((2*B,), dtype=np.complex64)
 
     for i in range(fdl.shape[0]):
         Z = np.multiply(fdl[fdl.shape[0]-1-i], Y_blocks[i])
         output += Z
     
-    out = np.real(np.fft.ifft(output, 2*B))
+    out = np.real(ifft(output, 2*B))
 
     return out[-B:], buffer
 
@@ -226,7 +275,25 @@ if __name__ == '__main__':
     data = load_wav("gs/110_B_SoulChords_05_6_SP.wav").astype(np.float32)
     reverb = load_wav("irs/EchoThiefImpulseResponseLibrary/Venues/SteinmanHall.wav").astype(np.float32)
     
+    print(max(abs(data)))
+    print(max(abs(reverb)))
+
     # test overlap add
-    t, mem = overlap_add(data, reverb, 1024, True)
-    print("{0} s / s".format(t))
-    print("{0} KB".format(mem))
+    print("Test 1 -------------------------")
+    t = overlap_add(data, reverb, 1024, True)
+    output, original = overlap_add(data, reverb, 1024)
+    wavfile.write("test1.wav", 44100, output)
+    print("overlap_add: {0} s / s".format(t))
+    # test overlap save
+    print("Test 2 -------------------------")
+    t = overlap_save(data, reverb, 1024, True)
+    output, original = overlap_save(data, reverb, 1024)
+    wavfile.write("test2.wav", 44100, output)
+    print("overlap_save: {0} s / s".format(t))
+    # test uniform partition ols
+    print("Test 3  ------------------------")
+    t = uniform_partition_ols(data, reverb, 1024, True)
+    output, original = uniform_partition_ols(data, reverb, 1024)
+    wavfile.write("test3.wav", 44100, output)
+    print("uniform_partition_ols: {0} s / s".format(t))
+
